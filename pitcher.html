@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>投手成績查詢</title>
+  <style>
+    body { 
+      font-family: system-ui, "Noto Sans TC", Arial, sans-serif; 
+      margin: 24px; 
+      background-color: #f7f9fc;
+      color: #333;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 24px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    h1 { 
+      margin: 0 0 12px; 
+      color: #1a3a6c;
+      text-align: center;
+      padding-bottom: 12px;
+      border-bottom: 2px solid #eaeaea;
+    }
+    .note-readonly {
+      background-color: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeeba;
+      padding: 12px 16px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      font-size: 14px;
+      display: flex;
+      align-items: center;
+    }
+    .note-readonly::before {
+      content: "⚠️";
+      margin-right: 8px;
+      font-size: 18px;
+    }
+    .controls { 
+      display: flex; 
+      gap: 12px; 
+      flex-wrap: wrap; 
+      margin-bottom: 20px;
+      padding: 16px;
+      background: #f8f9fa;
+      border-radius: 8px;
+    }
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      min-width: 200px;
+    }
+    .control-group label {
+      font-size: 12px;
+      margin-bottom: 4px;
+      color: #666;
+      font-weight: bold;
+    }
+    input, select { 
+      padding: 10px 12px; 
+      font-size: 14px; 
+      border: 1px solid #ddd;
+      border-radius: 6px;
+      background: white;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: #4a7bff;
+      box-shadow: 0 0 0 2px rgba(74, 123, 255, 0.2);
+    }
+    table { 
+      width: 100%; 
+      border-collapse: collapse; 
+      font-size: 14px; 
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { 
+      padding: 10px 12px; 
+      border-bottom: 1px solid #eaeaea; 
+      text-align: center; 
+    }
+    th { 
+      background: #1a3a6c; 
+      color: white;
+      position: sticky; 
+      top: 0;
+      font-weight: 600;
+    }
+    tr:nth-child(even) {
+      background-color: #f9fafc;
+    }
+    tr:hover {
+      background-color: #f1f5ff;
+    }
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: #666;
+      font-style: italic;
+    }
+    .error {
+      color: #dc3545;
+      background: #f8d7da;
+      padding: 12px;
+      border-radius: 6px;
+      margin: 20px 0;
+      text-align: center;
+    }
+    .results-count {
+      margin: 16px 0;
+      color: #666;
+      font-size: 14px;
+    }
+    @media (max-width: 768px) {
+      body {
+        margin: 12px;
+      }
+      .container {
+        padding: 16px;
+      }
+      .controls {
+        flex-direction: column;
+      }
+      .control-group {
+        width: 100%;
+      }
+      table {
+        font-size: 12px;
+      }
+      th, td {
+        padding: 8px 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>台中市 CBL 企業交流聯盟 投手成績查詢</h1>
+
+    <div class="note-readonly">
+      提示：此頁面僅供查詢投手成績，使用者無法修改資料。
+    </div>
+
+    <div class="controls">
+      <div class="control-group">
+        <label for="search">搜尋投手</label>
+        <input id="search" type="text" placeholder="輸入背號或姓名" />
+      </div>
+      <div class="control-group">
+        <label for="team">選擇球隊</label>
+        <select id="team"><option value="">全部球隊</option></select>
+      </div>
+      <div class="control-group">
+        <label for="season">選擇賽季</label>
+        <select id="season"><option value="">全部賽季</option></select>
+      </div>
+    </div>
+
+    <div class="results-count" id="results-count">載入中...</div>
+
+    <table id="table">
+      <thead><tr id="header-row"></tr></thead>
+      <tbody id="tbody">
+        <tr><td colspan="10" class="loading">正在載入資料...</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // 使用範例CSV資料（實際使用時請替換為您的Google試算表CSV連結）
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vTmnSzqJij7qN0DkHrUHSTUbQv609l1OkQU-1BlZqO2t2Jry0zvcMyQa1DpbGKYSXtF94pg2CU-I3X8/pub?gid=1969750057&single=true&output=csv";
+
+    const searchInput = document.getElementById('search');
+    const teamSelect = document.getElementById('team');
+    const seasonSelect = document.getElementById('season');
+    const headerRow = document.getElementById('header-row');
+    const tbody = document.getElementById('tbody');
+    const resultsCount = document.getElementById('results-count');
+    let rows = [], headers = [];
+
+    async function fetchCSV() {
+      try {
+        tbody.innerHTML = '<tr><td colspan="10" class="loading">正在載入資料...</td></tr>';
+        resultsCount.textContent = "載入中...";
+        
+        const res = await fetch(CSV_URL);
+        if (!res.ok) throw new Error('讀取失敗：HTTP ' + res.status);
+        const text = await res.text();
+        
+        if (!text || text.trim().length === 0) {
+          throw new Error('CSV檔案為空或無法讀取');
+        }
+        
+        parseCSV(text);
+        buildFilters();
+        render();
+      } catch (err) {
+        tbody.innerHTML = '<tr><td colspan="10" class="error">' + err.message + '</td></tr>';
+        resultsCount.textContent = "載入資料時發生錯誤";
+        console.error(err);
+      }
+    }
+
+    function parseCSV(text) {
+      const lines = text.replace(/\r/g, '').split('\n').filter(l => l.trim() !== '');
+      
+      if (lines.length === 0) {
+        throw new Error('CSV檔案沒有內容');
+      }
+      
+      headers = splitCSVLine(lines[0]).map(h => h.trim());
+      
+      if (headers.length === 0) {
+        throw new Error('CSV標頭行無法解析');
+      }
+      
+      rows = lines.slice(1).map(line => {
+        const cells = splitCSVLine(line);
+        const obj = {};
+        headers.forEach((h, i) => obj[h] = (cells[i] || '').trim());
+        return obj;
+      }).filter(row => Object.values(row).some(value => value !== ''));
+      
+      console.log("成功解析CSV:", rows.length, "行數據");
+    }
+
+    function splitCSVLine(line) {
+      const out = []; 
+      let cur = '', inQuotes = false;
+      
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i], n = line[i+1];
+        
+        if (c === '"' && inQuotes && n === '"') { 
+          cur += '"'; 
+          i++; 
+        } else if (c === '"') { 
+          inQuotes = !inQuotes; 
+        } else if (c === ',' && !inQuotes) { 
+          out.push(cur); 
+          cur = ''; 
+        } else { 
+          cur += c; 
+        }
+      }
+      
+      out.push(cur);
+      return out;
+    }
+
+    function buildFilters() {
+      // 嘗試找出對應的欄位名稱
+      const teamKey = headers.find(h => h.includes('隊') || h.toLowerCase().includes('team')) || headers[1];
+      const seasonKey = headers.find(h => h.includes('賽季') || h.toLowerCase().includes('season')) || headers[2];
+      const nameKey = headers.find(h => h.includes('姓名') || h.includes('名字') || h.toLowerCase().includes('name')) || headers[0];
+      
+      // 獲取不重複的球隊和賽季列表
+      const teams = [...new Set(rows.map(r => r[teamKey]).filter(Boolean))].sort();
+      const seasons = [...new Set(rows.map(r => r[seasonKey]).filter(Boolean))].sort().reverse();
+      
+      // 填充下拉選單
+      teamSelect.innerHTML = '<option value="">全部球隊</option>' + 
+        teams.map(t => `<option value="${t}">${t}</option>`).join('');
+      
+      seasonSelect.innerHTML = '<option value="">全部賽季</option>' + 
+        seasons.map(s => `<option value="${s}">${s}</option>`).join('');
+      
+      // 添加事件監聽器
+      searchInput.addEventListener('input', render);
+      teamSelect.addEventListener('change', render);
+      seasonSelect.addEventListener('change', render);
+      
+      // 儲存鍵名以便在render中使用
+      searchInput.dataset.nameKey = nameKey;
+      teamSelect.dataset.teamKey = teamKey;
+      seasonSelect.dataset.seasonKey = seasonKey;
+    }
+
+    function render() {
+      const nameKey = searchInput.dataset.nameKey;
+      const teamKey = teamSelect.dataset.teamKey;
+      const seasonKey = seasonSelect.dataset.seasonKey;
+      
+      const kw = searchInput.value.trim().toLowerCase();
+      const team = teamSelect.value;
+      const season = seasonSelect.value;
+      
+      const filtered = rows.filter(r => {
+        const passName = kw ? String(r[nameKey] || '').toLowerCase().includes(kw) : true;
+        const passTeam = team ? r[teamKey] === team : true;
+        const passSeason = season ? r[seasonKey] === season : true;
+        return passName && passTeam && passSeason;
+      });
+      
+      // 更新結果計數
+      resultsCount.textContent = `找到 ${filtered.length} 筆資料`;
+      
+      // 渲染表格
+      if (filtered.length > 0) {
+        tbody.innerHTML = filtered.map(r => 
+          `<tr>` + 
+          headers.map(h => `<td>${r[h] ? r[h] : '-'}</td>`).join('') + 
+          `</tr>`
+        ).join('');
+      } else {
+        tbody.innerHTML = `<tr><td colspan="${headers.length}">找不到符合的資料</td></tr>`;
+      }
+    }
+
+    // 頁面載入時獲取資料
+    document.addEventListener('DOMContentLoaded', fetchCSV);
+  </script>
+</body>
+</html>
